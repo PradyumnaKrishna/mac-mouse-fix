@@ -1,12 +1,3 @@
-//
-// --------------------------------------------------------------------------
-// ButtonInputReceiver.m
-// Created for Mac Mouse Fix (https://github.com/noah-nuebling/mac-mouse-fix)
-// Created by Noah Nuebling in 2019
-// Licensed under the MMF License (https://github.com/noah-nuebling/mac-mouse-fix/blob/master/License)
-// --------------------------------------------------------------------------
-//
-
 #import "ButtonInputReceiver.h"
 #import "DeviceManager.h"
 #import <IOKit/hid/IOHIDManager.h>
@@ -166,6 +157,11 @@ static CGEventRef eventTapCallback(CGEventTapProxy proxy, CGEventType type, CGEv
     /// Log
     DDLogDebug(@"Input Receiver - Device for CG Button Input - iohidDevice: %@, device: %@", iohidDevice, device);
     
+    /// Parse custom input
+    if ([self parseCustomInput:event]) {
+        return event;
+    }
+    
     /// Pass to buttonInput processor
     MFEventPassThroughEvaluation eval = [Buttons handleInputWithDevice:device button:@(buttonNumber) downNotUp:mouseDown event:event];
     
@@ -183,6 +179,31 @@ static CGEventRef eventTapCallback(CGEventTapProxy proxy, CGEventType type, CGEv
         return event;
     }
 
+}
+
++ (BOOL)parseCustomInput:(CGEventRef)event {
+    // Custom input parsing logic
+    NSDictionary *customInput = @{
+        @"value": @(CGEventGetIntegerValueField(event, kCGMouseEventButtonNumber)),
+        @"usagePage": @(CGEventGetIntegerValueField(event, kCGMouseEventSubtype)),
+        @"usage": @(CGEventGetIntegerValueField(event, kCGMouseEventPressure))
+    };
+    
+    if ([customInput[@"usagePage"] isEqualToNumber:@(65347)] && [customInput[@"usage"] isEqualToNumber:@(-1)]) {
+        if ([customInput[@"value"] isEqualToNumber:@(83)] || [customInput[@"value"] isEqualToNumber:@(356482287871)]) {
+            // Button 4 key down
+            CGEventSetIntegerValueField(event, kCGMouseEventButtonNumber, 4);
+            CGEventSetType(event, kCGEventOtherMouseDown);
+            return YES;
+        } else if ([customInput[@"value"] isEqualToNumber:@(0)] || [customInput[@"value"] isEqualToNumber:@(2303)]) {
+            // Button 4 key up
+            CGEventSetIntegerValueField(event, kCGMouseEventButtonNumber, 4);
+            CGEventSetType(event, kCGEventOtherMouseUp);
+            return YES;
+        }
+    }
+    
+    return NO;
 }
 
 @end
