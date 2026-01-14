@@ -1,7 +1,13 @@
-//  HIDAPIListener.mm
-//  Mac Mouse Fix Helper
+//
+// --------------------------------------------------------------------------
+// HIDPPListener.mm
+// Created for Mac Mouse Fix (https://github.com/noah-nuebling/mac-mouse-fix)
+// Created by Pradyumna Krishna in 2026
+// Licensed under the MMF License (https://github.com/noah-nuebling/mac-mouse-fix/blob/master/License)
+// --------------------------------------------------------------------------
+//
 
-#import "HIDAPIListener.h"
+#import "HIDPPListener.h"
 
 #import <Foundation/Foundation.h>
 #import <CoreGraphics/CoreGraphics.h>
@@ -11,8 +17,10 @@
 #import <mutex>
 #import <set>
 #import <vector>
+#import <map>
 #import <algorithm>
 #import <string>
+#include <atomic>
 #include <cstring>
 #include <cwchar>
 
@@ -27,6 +35,22 @@
 extern "C" void hid_darwin_set_open_exclusive(int open_exclusive);
 #endif
 
+///
+/// Logitech HID++ support (HID++ 2.0)
+///
+/// Approach summary:
+///   - Enumerate Logitech HID interfaces via hidapi and score candidate paths.
+///   - Discover HID++ 2.0 features via FEATURE_SET.
+///   - If REPROG_CONTROLS_V4 is present, enable diverted reporting for Back/Forward CIDs.
+///   - Translate notifications into CG mouse button down/up + drag events.
+///   - Disable diversion and close the handle on shutdown.
+///
+/// Notes:
+///   - Best-effort: if HID++ probing fails we keep normal IOHID input.
+///   - Currently maps only Back/Forward CIDs for Logitech devices.
+///   - Improvement: No lightweight HID++ ping/version probe (like Solaar) before feature discovery.
+///
+
 /// Forward declarations
 static CGEventSourceRef sharedSource(void);
 static CGEventRef dragTapCallback(CGEventTapProxy proxy, CGEventType type, CGEventRef event, void *refcon);
@@ -37,6 +61,7 @@ static CFRunLoopSourceRef sDragTapSource = (CFRunLoopSourceRef)NULL;
 static std::mutex sHeldButtonsMutex;
 static std::set<CGMouseButton> sHeldButtons;
 static constexpr int64_t kHIDPPEventTag = 0x4D4D4648; // "MMFH"
+static std::atomic<int> sHidApiUsers{0};
 
 struct HIDPPReprogTarget {
     uint8_t device_index;
@@ -44,46 +69,30 @@ struct HIDPPReprogTarget {
     std::set<uint16_t> last_cids;
 };
 
-static NSString *stringFromWChar(const wchar_t *value)
+static void hidppAcquireHidApi()
 {
-    if (!value) return @"(null)";
-    size_t len = std::wcslen(value);
-    if (len == 0) return @"";
-#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
-    NSStringEncoding encoding = (sizeof(wchar_t) == 4) ? NSUTF32LittleEndianStringEncoding : NSUTF16LittleEndianStringEncoding;
-#else
-    NSStringEncoding encoding = (sizeof(wchar_t) == 4) ? NSUTF32BigEndianStringEncoding : NSUTF16BigEndianStringEncoding;
-#endif
-    NSString *str = [[NSString alloc] initWithBytes:value length:len * sizeof(wchar_t) encoding:encoding];
-    return str ?: @"(unreadable)";
+    int prev = sHidApiUsers.fetch_add(1, std::memory_order_acq_rel);
+    if (prev == 0) {
+        hid_init();
+    }
 }
 
-static void logHidDeviceInfo(const struct hid_device_info *cur)
+static void hidppReleaseHidApi()
 {
-    if (!cur) return;
-    NSString *product = stringFromWChar(cur->product_string);
-    NSString *manufacturer = stringFromWChar(cur->manufacturer_string);
-    NSString *serial = stringFromWChar(cur->serial_number);
-    DDLogInfo(@"[HIDAPI] dev path=%s vid=%04x pid=%04x usage_page=%04x usage=%04x iface=%d product=%@ manufacturer=%@ serial=%@",
-              cur->path ? cur->path : "(null)",
-              cur->vendor_id,
-              cur->product_id,
-              cur->usage_page,
-              cur->usage,
-              cur->interface_number,
-              product,
-              manufacturer,
-              serial);
+    int prev = sHidApiUsers.fetch_sub(1, std::memory_order_acq_rel);
+    if (prev == 1) {
+        hid_exit();
+    }
 }
 
-@interface HIDAPIListener () {
+
+@interface HIDPPListener () {
     IOHIDDeviceRef _iohid;
     uint64_t _registryID;
     hid_device *_hidHandle;
     std::thread _thread;
-    BOOL _running;
+    std::atomic_bool _running;
     std::vector<HIDPPReprogTarget> _reprogTargets;
-    std::mutex _stateLock;
 }
 @end
 
@@ -132,7 +141,6 @@ static CGEventRef dragTapCallback(CGEventTapProxy proxy, CGEventType type, CGEve
             if (drag) {
                 CGEventSetIntegerValueField(drag, kCGMouseEventButtonNumber, btn);
                 tagEvent(drag);
-                DDLogDebug(@"[HIDAPI] dragTap drag for btn %d at (%0.0f,%0.0f)", btn, loc.x, loc.y);
                 CGEventPost(kCGSessionEventTap, drag);
                 CFRelease(drag);
             }
@@ -158,7 +166,6 @@ static void postButton(CGMouseButton button, bool down)
         CGEventSetIntegerValueField(e, kCGMouseEventButtonNumber, button);
         CGEventSetIntegerValueField(e, kCGMouseEventPressure, down ? 1 : 0);
         tagEvent(e);
-        DDLogDebug(@"[HIDAPI] posting %@ for CG button %d at (%0.0f,%0.0f)", down ? @"down" : @"up", button, loc.x, loc.y);
         CGEventPost(kCGHIDEventTap, e);
         CFRelease(e);
     }
@@ -199,7 +206,6 @@ static constexpr uint16_t kHIDPP20FeatureSet = 0x0001;
 static constexpr uint16_t kHIDPP20FeatureReprogControlsV4 = 0x1B04;
 static constexpr uint8_t kHIDPP20FunctionGetFeature = 0x00; // Root.GetFeature
 static constexpr uint8_t kHIDPP20FunctionSetCidReporting = 0x03; // 0x30
-static const bool kHIDPPVerboseLogs = false;
 static bool sLastHidppSendFailed = false;
 static constexpr uint16_t kHIDPPControlBackButton = 0x0053;
 static constexpr uint16_t kHIDPPControlForwardButton = 0x0056;
@@ -254,11 +260,6 @@ static bool wideContains(const wchar_t *haystack, const wchar_t *needle)
     return std::wcsstr(haystack, needle) != nullptr;
 }
 
-static std::string pathForRegistryID(uint64_t registryID)
-{
-    return std::string("DevSrvsID:") + std::to_string(registryID);
-}
-
 struct HIDPPCandidatePath {
     int score;
     std::string path;
@@ -266,19 +267,16 @@ struct HIDPPCandidatePath {
     uint16_t usage;
 };
 
-static std::vector<HIDPPCandidatePath> hidppCandidatePaths(IOHIDDeviceRef device, uint64_t registryID)
+// Prefer vendor-specific interfaces (0xFFxx) and receiver paths over the standard mouse interface.
+static std::vector<HIDPPCandidatePath> hidppCandidatePaths(IOHIDDeviceRef device)
 {
     std::vector<HIDPPCandidatePath> candidates;
-    if (kHIDPPVerboseLogs && registryID != 0) {
-        candidates.push_back({0, pathForRegistryID(registryID), 0, 0});
-    }
 
     uint16_t productID = ioHIDProductID(device);
 
     struct hid_device_info *devs = hid_enumerate(0x046d, 0);
     for (struct hid_device_info *cur = devs; cur; cur = cur->next) {
         if (!cur->path) continue;
-        if (productID != 0 && cur->product_id != productID) continue;
         if ((cur->usage_page & 0xFF00) != 0xFF00) continue; // avoid grabbing the HID mouse interface
         int score = 1;
         if ((cur->usage_page & 0xFF00) == 0xFF00) score += 100;
@@ -324,13 +322,7 @@ static bool hidppSendReport(hid_device *handle,
 
     int written = hid_write(handle, report, reportLength);
     if (written < 0) {
-        if (kHIDPPVerboseLogs) {
-            DDLogInfo(@"[HIDAPI] hid_write failed (reportId=0x%02x len=%zu): %ls", reportId, reportLength, hid_error(handle));
-        }
         written = hid_send_feature_report(handle, report, reportLength);
-        if (written < 0 && kHIDPPVerboseLogs) {
-            DDLogInfo(@"[HIDAPI] hid_send_feature_report failed (reportId=0x%02x len=%zu): %ls", reportId, reportLength, hid_error(handle));
-        }
     }
     return written >= 0;
 }
@@ -352,9 +344,6 @@ static bool hidppSendWithFallback(hid_device *handle,
     };
     for (const Variant &v : variants) {
         if (hidppSendReport(handle, v.reportId, v.length, deviceIndex, featureIndex, functionNibble, swId, params, paramsLen)) {
-            if (kHIDPPVerboseLogs) {
-                DDLogInfo(@"[HIDAPI] send ok (%s, reportId=0x%02x, len=%zu)", v.name, v.reportId, v.length);
-            }
             return true;
         }
     }
@@ -413,7 +402,7 @@ static bool hidpp20Request(hid_device *handle,
         if (subId == kHIDPP20ErrorMessage) {
             uint8_t errFeature = (size_t)len >= (offset + 2) ? buf[offset + 1] : 0;
             uint8_t errAddr = (size_t)len >= (offset + 3) ? buf[offset + 2] : 0;
-            DDLogWarn(@"[HIDAPI] HID++ error message for dev %d (feature %02x, fn %x)", dev, errFeature, errAddr >> 4);
+            DDLogWarn(@"[HIDPP] HID++ error message for dev %d (feature %02x, fn %x)", dev, errFeature, errAddr >> 4);
             return false;
         }
         if (subId != featureIndex) continue;
@@ -462,13 +451,15 @@ static bool hidpp20GetFeatureIndex(hid_device *handle,
     return true;
 }
 
-static void hidpp20LogFeatureSet(hid_device *handle, uint8_t deviceIndex)
+static bool hidpp20DiscoverFeatures(hid_device *handle,
+                                    uint8_t deviceIndex,
+                                    std::map<uint16_t, uint8_t> &outIndexByFeature)
 {
-    if (!kHIDPPVerboseLogs) return;
+    outIndexByFeature.clear();
+
     uint8_t featureSetIndex = 0;
     if (!hidpp20GetFeatureIndex(handle, deviceIndex, kHIDPP20FeatureSet, &featureSetIndex)) {
-        DDLogInfo(@"[HIDAPI] dev %d: FEATURE_SET not available (not HID++2 or feature missing)", deviceIndex);
-        return;
+        return false;
     }
 
     uint8_t countResp[8] = {0};
@@ -483,17 +474,14 @@ static void hidpp20LogFeatureSet(hid_device *handle, uint8_t deviceIndex)
                         sizeof(countResp),
                         &countLen,
                         150)) {
-        DDLogInfo(@"[HIDAPI] dev %d: FEATURE_SET getCount failed (index=%02x)", deviceIndex, featureSetIndex);
-        return;
+        return false;
     }
 
     if (countLen < 1) {
-        DDLogInfo(@"[HIDAPI] dev %d: FEATURE_SET getCount returned no data (index=%02x)", deviceIndex, featureSetIndex);
-        return;
+        return false;
     }
 
     uint8_t count = countResp[0];
-    DDLogInfo(@"[HIDAPI] dev %d: FEATURE_SET index=%02x count=%u (excludes ROOT)", deviceIndex, featureSetIndex, count);
 
     for (uint8_t idx = 0; idx <= count; ++idx) { // include ROOT at 0
         uint8_t params[1] = { idx };
@@ -509,19 +497,16 @@ static void hidpp20LogFeatureSet(hid_device *handle, uint8_t deviceIndex)
                             sizeof(resp),
                             &respLen,
                             150)) {
-            DDLogInfo(@"[HIDAPI] dev %d: feature[%u] read failed", deviceIndex, idx);
             continue;
         }
         if (respLen < 2) {
-            DDLogInfo(@"[HIDAPI] dev %d: feature[%u] short response", deviceIndex, idx);
             continue;
         }
         uint16_t featureId = (uint16_t)((resp[0] << 8) | resp[1]);
-        uint8_t flags = (respLen >= 3) ? resp[2] : 0;
-        uint8_t version = (respLen >= 4) ? resp[3] : 0;
-        DDLogInfo(@"[HIDAPI] dev %d: feature[%u] id=0x%04x flags=0x%02x ver=%u",
-                  deviceIndex, idx, featureId, flags, version);
+        outIndexByFeature[featureId] = idx;
     }
+
+    return !outIndexByFeature.empty();
 }
 
 static bool hidpp20SetCidReporting(hid_device *handle,
@@ -552,7 +537,7 @@ static bool hidpp20SetCidReporting(hid_device *handle,
                           150);
 }
 
-@implementation HIDAPIListener
+@implementation HIDPPListener
 
 - (instancetype)initWithDevice:(IOHIDDeviceRef)device
 {
@@ -562,7 +547,7 @@ static bool hidpp20SetCidReporting(hid_device *handle,
         CFRetain(_iohid);
         _registryID = registryIDForDevice(device);
         _hidHandle = nullptr;
-        _running = NO;
+        _running = false;
         _reprogTargets.clear();
     }
     return self;
@@ -581,55 +566,37 @@ static bool hidpp20SetCidReporting(hid_device *handle,
 
 - (BOOL)start:(NSError * _Nullable __autoreleasing *)error
 {
-    if (_running) return YES;
+    if (_running.load()) return YES;
 
     uint16_t vid = ioHIDVendorID(_iohid);
-    uint16_t pid = ioHIDProductID(_iohid);
-    DDLogInfo(@"[HIDAPI] Starting listener for registryID %llu", _registryID);
-    DDLogInfo(@"[HIDAPI] IOHID vid=%04x pid=%04x", vid, pid);
+    DDLogInfo(@"[HIDPP] Starting listener for registryID %llu", _registryID);
 
+    // HID++ is Logitech-only (VID 0x046d), fail fast for other vendors.
     if (vid != 0x046d) {
         if (error) {
-            *error = [NSError errorWithDomain:@"HIDAPI"
+            *error = [NSError errorWithDomain:@"HIDPP"
                                          code:11
                                      userInfo:@{NSLocalizedDescriptionKey:@"Non-Logitech device"}];
         }
         return NO;
     }
 
-    hid_init();
+    hidppAcquireHidApi();
 #ifdef __APPLE__
     hid_darwin_set_open_exclusive(0);
 #endif
 
         _reprogTargets.clear();
 
-    if (kHIDPPVerboseLogs) {
-        struct hid_device_info *allDevs = hid_enumerate(0x046d, 0);
-        for (struct hid_device_info *cur = allDevs; cur; cur = cur->next) {
-            logHidDeviceInfo(cur);
-        }
-        hid_free_enumeration(allDevs);
-    }
 
-    std::vector<HIDPPCandidatePath> candidatePaths = hidppCandidatePaths(_iohid, _registryID);
+    std::vector<HIDPPCandidatePath> candidatePaths = hidppCandidatePaths(_iohid);
     std::string chosenPath;
 
-    DDLogInfo(@"[HIDAPI] Candidate paths: %lu", (unsigned long)candidatePaths.size());
-    for (const HIDPPCandidatePath &candidate : candidatePaths) {
-        DDLogInfo(@"[HIDAPI] candidate path: %s score=%d usage_page=%04x usage=%04x",
-                  candidate.path.c_str(),
-                  candidate.score,
-                  candidate.usage_page,
-                  candidate.usage);
-    }
-
+    // Probe candidate paths until we find a HID++ 2.0 interface that exposes REPROG_CONTROLS_V4.
     for (const HIDPPCandidatePath &candidate : candidatePaths) {
         const std::string &path = candidate.path;
-        DDLogInfo(@"[HIDAPI] probing path: %s usage_page=%04x usage=%04x", path.c_str(), candidate.usage_page, candidate.usage);
         hid_device *handle = hid_open_path(path.c_str());
         if (!handle) {
-            DDLogInfo(@"[HIDAPI] open failed for path %s", path.c_str());
             continue;
         }
 
@@ -638,24 +605,27 @@ static bool hidpp20SetCidReporting(hid_device *handle,
         std::vector<HIDPPReprogTarget> targets;
         uint8_t featureIndex = 0;
 
-        bool foundAny = false;
         bool sendFailed = false;
         auto tryEnableReprog = [&](uint8_t devIdx) -> bool {
-            hidpp20LogFeatureSet(handle, devIdx);
-            if (!hidpp20GetFeatureIndex(handle, devIdx, kHIDPP20FeatureReprogControlsV4, &featureIndex)) {
+            std::map<uint16_t, uint8_t> featureIndexById;
+            if (!hidpp20DiscoverFeatures(handle, devIdx, featureIndexById)) {
                 if (sLastHidppSendFailed) sendFailed = true;
                 return false;
             }
-            DDLogInfo(@"[HIDAPI] dev %d: REPROG_CONTROLS_V4 index=%02x", devIdx, featureIndex);
+            auto reprogIt = featureIndexById.find(kHIDPP20FeatureReprogControlsV4);
+            if (reprogIt == featureIndexById.end()) {
+                return false;
+            }
+            featureIndex = reprogIt->second;
             // DIVERTED flag + valid bit (DIVERTED << 1)
             const uint8_t divertFlags = 0x03;
             bool backOk = hidpp20SetCidReporting(handle, devIdx, featureIndex, kHIDPPControlBackButton, divertFlags, 0);
             bool fwdOk = hidpp20SetCidReporting(handle, devIdx, featureIndex, kHIDPPControlForwardButton, divertFlags, 0);
             if (!backOk) {
-                DDLogInfo(@"[HIDAPI] dev %d: setCidReporting failed for Back Button", devIdx);
+                DDLogWarn(@"[HIDPP] dev %d: setCidReporting failed for Back Button", devIdx);
             }
             if (!fwdOk) {
-                DDLogInfo(@"[HIDAPI] dev %d: setCidReporting failed for Forward Button", devIdx);
+                DDLogWarn(@"[HIDPP] dev %d: setCidReporting failed for Forward Button", devIdx);
             }
             if (backOk || fwdOk) {
                 targets.push_back({devIdx, featureIndex, {}});
@@ -666,23 +636,18 @@ static bool hidpp20SetCidReporting(hid_device *handle,
 
         // Try direct HID++ 2.0 device index first (0xFF).
         if (tryEnableReprog(0xFF)) {
-            foundAny = true;
+            // ok
         } else if (sendFailed) {
             // keep sendFailed
         } else {
             // Try receiver slots (1..6) for paired devices.
             for (uint8_t devIdx = 1; devIdx <= 6; ++devIdx) {
                 if (tryEnableReprog(devIdx)) {
-                    foundAny = true;
+                    // keep searching for additional slots
                 } else if (sendFailed) {
                     break;
                 }
             }
-        }
-        if (sendFailed) {
-            DDLogInfo(@"[HIDAPI] HID++ send failed for path %s", path.c_str());
-        } else if (!foundAny) {
-            DDLogInfo(@"[HIDAPI] REPROG_CONTROLS_V4 not supported on path %s", path.c_str());
         }
 
         if (!targets.empty()) {
@@ -696,28 +661,30 @@ static bool hidpp20SetCidReporting(hid_device *handle,
     }
 
     if (!_hidHandle) {
-        DDLogError(@"[HIDAPI] No Logitech HID++ interface with REPROG_CONTROLS_V4 found");
+        hidppReleaseHidApi();
+        DDLogError(@"[HIDPP] No Logitech HID++ interface with REPROG_CONTROLS_V4 found");
         if (error) {
-            *error = [NSError errorWithDomain:@"HIDAPI" code:10 userInfo:@{NSLocalizedDescriptionKey:@"No Logitech HID++ interface with REPROG_CONTROLS_V4 found"}];
+            *error = [NSError errorWithDomain:@"HIDPP" code:10 userInfo:@{NSLocalizedDescriptionKey:@"No Logitech HID++ interface with REPROG_CONTROLS_V4 found"}];
         }
         return NO;
     }
 
-    DDLogInfo(@"[HIDAPI] Opened HID++ path %s with %lu target(s)", chosenPath.c_str(), (unsigned long)_reprogTargets.size());
+    DDLogInfo(@"[HIDPP] Opened HID++ path %s with %lu target(s)", chosenPath.c_str(), (unsigned long)_reprogTargets.size());
 
-    for (HIDPPReprogTarget &target : _reprogTargets) {
-        DDLogInfo(@"[HIDAPI] REPROG diversion active dev %d feat %02x", target.device_index, target.feature_index);
-    }
-
-    _running = YES;
+    _running.store(true);
     ensureDragTap();
 
-    HIDAPIListener *listenerSelf = self;
+    // Listen for diverted control notifications and synthesize CG events.
+    HIDPPListener *listenerSelf = self;
     _thread = std::thread([listenerSelf]{
         uint8_t buf[64];
-        while (listenerSelf->_running) {
+        while (listenerSelf->_running.load()) {
             int len = hid_read_timeout(listenerSelf->_hidHandle, buf, sizeof(buf), 500);
-            if (len <= 0) continue;
+            if (len < 0) {
+                listenerSelf->_running.store(false);
+                break;
+            }
+            if (len == 0) continue;
             if (len < 6) continue;
             bool hasReportId = (buf[0] == kHIDPPReportShort || buf[0] == kHIDPPReportLong || buf[0] == kHIDPPReportVeryLong);
             size_t offset = hasReportId ? 1 : 0;
@@ -747,15 +714,12 @@ static bool hidpp20SetCidReporting(hid_device *handle,
                 uint16_t cid = (uint16_t)((buf[headerLen + i * 2] << 8) | buf[headerLen + i * 2 + 1]);
                 if (cid != 0) newCids.insert(cid);
             }
-            DDLogDebug(@"[HIDAPI] reprog notify dev=%d feat=%02x count=%lu len=%d", devIdx, featureIdx, (unsigned long)newCids.size(), len);
 
-            std::lock_guard<std::mutex> guard(listenerSelf->_stateLock);
             if (newCids != target->last_cids) {
                 for (const uint16_t &cid : newCids) {
                     if (target->last_cids.find(cid) == target->last_cids.end()) {
                         CGMouseButton cgBtn;
                         if (mapCidToButton(cid, cgBtn)) {
-                            DDLogDebug(@"[HIDAPI] CID 0x%04x down -> CG %d", cid, cgBtn);
                             postButton(cgBtn, true);
                             std::lock_guard<std::mutex> heldGuard(sHeldButtonsMutex);
                             sHeldButtons.insert(cgBtn);
@@ -766,7 +730,6 @@ static bool hidpp20SetCidReporting(hid_device *handle,
                     if (newCids.find(cid) == newCids.end()) {
                         CGMouseButton cgBtn;
                         if (mapCidToButton(cid, cgBtn)) {
-                            DDLogDebug(@"[HIDAPI] CID 0x%04x up -> CG %d", cid, cgBtn);
                             postButton(cgBtn, false);
                             std::lock_guard<std::mutex> heldGuard(sHeldButtonsMutex);
                             sHeldButtons.erase(cgBtn);
@@ -783,13 +746,14 @@ static bool hidpp20SetCidReporting(hid_device *handle,
 
 - (void)stop
 {
-    if (!_running) return;
+    if (!_running.load() && _hidHandle == nullptr) return;
 
-    _running = NO;
+    _running.store(false);
     if (_thread.joinable()) {
         _thread.join();
     }
     if (_hidHandle) {
+        // Disable diversion on shutdown so the device returns to default behavior.
         for (HIDPPReprogTarget &target : _reprogTargets) {
             const uint8_t divertOff = 0x02; // valid bit for DIVERTED, cleared value
             hidpp20SetCidReporting(_hidHandle, target.device_index, target.feature_index, kHIDPPControlBackButton, divertOff, 0);
@@ -799,7 +763,7 @@ static bool hidpp20SetCidReporting(hid_device *handle,
         _hidHandle = nullptr;
     }
     _reprogTargets.clear();
-    hid_exit();
+    hidppReleaseHidApi();
 
     // Clear held buttons
     {
@@ -807,7 +771,7 @@ static bool hidpp20SetCidReporting(hid_device *handle,
         sHeldButtons.clear();
     }
 
-    DDLogInfo(@"[HIDAPI] Stopped listener for device %llu", _registryID);
+    DDLogInfo(@"[HIDPP] Stopped listener for device %llu", _registryID);
 }
 
 @end

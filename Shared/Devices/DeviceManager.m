@@ -32,7 +32,7 @@
 
 #import "SharedUtility.h"
 #import "Mac_Mouse_Fix_Helper-Swift.h"
-#import "HIDAPIListener.h"
+#import "HIDPPListener.h"
 
 @implementation DeviceManager
 
@@ -40,7 +40,7 @@
 
 static IOHIDManagerRef _manager;
 static NSMutableArray<Device *> *_attachedDevices;
-static NSMutableDictionary<NSNumber *, HIDAPIListener *> *_hidapiListeners;
+static NSMutableDictionary<NSNumber *, HIDPPListener *> *_hidppListeners; // Best-effort HID++ listeners keyed by IORegistry ID.
 
 + (BOOL)devicesAreAttached {
     return _attachedDevices.count > 0;
@@ -103,7 +103,7 @@ static uint64_t registryIDForDevice(IOHIDDeviceRef device) {
 + (void)load_Manual {
     setupDeviceMatchingAndRemovalCallbacks();
     _attachedDevices = [NSMutableArray array];
-    _hidapiListeners = [NSMutableDictionary dictionary];
+    _hidppListeners = [NSMutableDictionary dictionary];
 }
 
 + (void)deconfigureDevices {
@@ -244,16 +244,16 @@ static void handleDeviceMatching(void *context, IOReturn result, void *sender, I
 //        [ReactiveDeviceManager.shared handleAttachedDevicesDidChange];
         [SwitchMaster.shared attachedDevicesChangedWithDevices:_attachedDevices];
 
-        // Start HIDAPI listener for Logitech devices (best-effort)
+        // Start HIDPP listener for Logitech devices (best-effort)
         NSNumber *registryID = @(registryIDForDevice(device));
-        if (_hidapiListeners[registryID] == nil) {
-            HIDAPIListener *listener = [[HIDAPIListener alloc] initWithDevice:device];
+        if (_hidppListeners[registryID] == nil) {
+            HIDPPListener *listener = [[HIDPPListener alloc] initWithDevice:device];
             NSError *err = nil;
             if ([listener start:&err]) {
-                _hidapiListeners[registryID] = listener;
-                DDLogInfo(@"Started HIDAPI listener for device %@ (registryID %@)", newDevice.name, registryID);
+                _hidppListeners[registryID] = listener;
+                DDLogInfo(@"Started HIDPP listener for device %@ (registryID %@)", newDevice.name, registryID);
             } else {
-                DDLogDebug(@"HIDAPI listener failed for device %@ (registryID %@): %@", newDevice.name, registryID, err.localizedDescription);
+                DDLogDebug(@"HIDPP listener failed for device %@ (registryID %@): %@", newDevice.name, registryID, err.localizedDescription);
             }
         }
         
@@ -320,13 +320,13 @@ static void handleDeviceRemoval(void *context, IOReturn result, void *sender, IO
         _maxButtonNumberAmongDevices_IsCached = false;
         [_iohidToAttachedCache removeAllObjects];
 
-        // Stop HIDAPI listener
+        // Stop HIDPP listener
         NSNumber *registryID = @(registryIDForDevice(device));
-        HIDAPIListener *listener = _hidapiListeners[registryID];
+        HIDPPListener *listener = _hidppListeners[registryID];
         if (listener != nil) {
             [listener stop];
-            [_hidapiListeners removeObjectForKey:registryID];
-            DDLogInfo(@"Stopped HIDAPI listener for registryID %@", registryID);
+            [_hidppListeners removeObjectForKey:registryID];
+            DDLogInfo(@"Stopped HIDPP listener for registryID %@", registryID);
         }
         
         /// Notify

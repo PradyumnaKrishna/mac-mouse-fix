@@ -424,7 +424,7 @@
 		4FFAEBEA2E74367300832CE2 /* AddField.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FFAEBE92E74367300832CE2 /* AddField.swift */; };
 		4FFBC5A8266977CA001D389B /* DoubleExponentialSmoother.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FFBC5A7266977CA001D389B /* DoubleExponentialSmoother.swift */; };
 		4FFE2895291B35AA0058ABE0 /* (null) in Sources */ = {isa = PBXBuildFile; };
-		5AAA00052500000000000005 /* HIDAPIListener.mm in Sources */ = {isa = PBXBuildFile; fileRef = 5AAA00032500000000000003 /* HIDAPIListener.mm */; };
+		5AAA00052500000000000005 /* HIDPPListener.mm in Sources */ = {isa = PBXBuildFile; fileRef = 5AAA00032500000000000003 /* HIDPPListener.mm */; };
 		5AAA00062500000000000006 /* hid.c in Sources */ = {isa = PBXBuildFile; fileRef = 5AAA00042500000000000004 /* hid.c */; };
 /* End PBXBuildFile section */
 
@@ -2580,8 +2580,8 @@
 		4FFAEBE92E74367300832CE2 /* AddField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddField.swift; sourceTree = "<group>"; };
 		4FFBC5A6266977CA001D389B /* Mac Mouse Fix Helper-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Mac Mouse Fix Helper-Bridging-Header.h"; sourceTree = "<group>"; };
 		4FFBC5A7266977CA001D389B /* DoubleExponentialSmoother.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubleExponentialSmoother.swift; sourceTree = "<group>"; };
-		5AAA00022500000000000002 /* HIDAPIListener.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = HIDAPIListener.h; sourceTree = "<group>"; };
-		5AAA00032500000000000003 /* HIDAPIListener.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = HIDAPIListener.mm; sourceTree = "<group>"; };
+		5AAA00022500000000000002 /* HIDPPListener.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = HIDPPListener.h; sourceTree = "<group>"; };
+		5AAA00032500000000000003 /* HIDPPListener.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = HIDPPListener.mm; sourceTree = "<group>"; };
 		5AAA00042500000000000004 /* hid.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = hid.c; path = External/hidapi/mac/hid.c; sourceTree = "<group>"; };
 		D067879D2F16677600A6536C /* Mac Mouse FixDebug.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "Mac Mouse FixDebug.entitlements"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -7638,7 +7638,7 @@
 				4FF6663925F2C93A00689B77 /* Actions */,
 				4FFBC5B126697E8D001D389B /* Smoothing */,
 				4FF6664725F2C93A00689B77 /* PointerSpeed */,
-				5AAA00012500000000000001 /* HIDAPI */,
+				5AAA00012500000000000001 /* HIDPP */,
 			);
 			path = Core;
 			sourceTree = "<group>";
@@ -7941,13 +7941,13 @@
 			path = Smoothing;
 			sourceTree = "<group>";
 		};
-		5AAA00012500000000000001 /* HIDAPI */ = {
+		5AAA00012500000000000001 /* HIDPP */ = {
 			isa = PBXGroup;
 			children = (
-				5AAA00022500000000000002 /* HIDAPIListener.h */,
-				5AAA00032500000000000003 /* HIDAPIListener.mm */,
+				5AAA00022500000000000002 /* HIDPPListener.h */,
+				5AAA00032500000000000003 /* HIDPPListener.mm */,
 			);
-			path = HIDAPI;
+			path = HIDPP;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -8474,7 +8474,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				5AAA00052500000000000005 /* HIDAPIListener.mm in Sources */,
+				5AAA00052500000000000005 /* HIDPPListener.mm in Sources */,
 				5AAA00062500000000000006 /* hid.c in Sources */,
 				4FB8B29F2CCEBB1700A5A580 /* GetTrialState.swift in Sources */,
 				4F9C9B58268A29B70083DED0 /* RollingAverage.swift in Sources */,
