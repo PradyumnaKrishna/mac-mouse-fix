@@ -45,7 +45,7 @@
             ActionType = "Xcode.IDEStandardExecutionActionsCore.ExecutionActionType.ShellScriptAction">
             <ActionContent
                title = "Run Script"
-               scriptText = "# rm ~/Library/Application\ Support/com.nuebling.mac-mouse-fix/config.plist&#10;">
+               scriptText = "# rm ~/Library/Application\ Support/in.onpy.mac-mouse-fix/config.plist&#10;">
             </ActionContent>
          </ExecutionAction>
       </PreActions>

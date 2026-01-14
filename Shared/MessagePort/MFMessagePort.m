@@ -11,7 +11,7 @@
 ///     More or less works like a function call across processes.
 /// Notes:
 /// - Can't be named MessagePort because there's already a class in Foundation with that name
-/// - This is a wrapper around CFMessagePort, which itself is a wrapper around mach ports. This was one of the first things we wrote for Mac Mouse Fix. Don't remember why we didn't use the higher level NSMachPort or directly use the low level mach_port C APIs. 
+/// - This is a wrapper around CFMessagePort, which itself is a wrapper around mach ports. This was one of the first things we wrote for Mac Mouse Fix. Don't remember why we didn't use the higher level NSMachPort or directly use the low level mach_port C APIs.
 ///
 /// TODO:
 ///     Make this secure.
@@ -67,44 +67,44 @@
 
 ///     Notes from Helper:
 ///         CFMessagePortCreateRunLoopSource() used to crash when another instance of MMF Helper was already running.
-///         It would log this: `*** CFMessagePort: bootstrap_register(): failed 1100 (0x44c) 'Permission denied', port = 0x1b03, name = 'com.nuebling.mac-mouse-fix.helper'`
+///         It would log this: `*** CFMessagePort: bootstrap_register(): failed 1100 (0x44c) 'Permission denied', port = 0x1b03, name = 'in.onpy.mac-mouse-fix.helper'`
 ///         I think the reason for this message is that the existing instance would already 'occupy' the kMFBundleIDHelper name.
 ///         Checking if `localPort != nil` should detect this case
 
 @implementation MFMessagePort
 
 + (void)load_Manual {
-    
+
     #pragma mark - Init
-    
+
     /// Set up a local port for listening for incoming messages
-    
+
     /// Validate
     assert(runningMainApp() || runningHelper());
-    
+
     /// Log
     DDLogInfo(@"Initializing MessagePort...");
-    
+
     /// Create port
     CFStringRef messagePortName = (__bridge CFStringRef)(runningMainApp() ? kMFBundleIDApp : kMFBundleIDHelper);
     CFMessagePortRef localPort = CFMessagePortCreateLocal(kCFAllocatorDefault, messagePortName, didReceiveMessage, NULL, NULL);
 
     /// Log
     DDLogInfo(@"Created localPort: %@", localPort);
-    
+
     /// Validate
     if (localPort == NULL) {
-        
+
         if (runningMainApp()) {
             DDLogInfo(@"Failed to create a local message port. It will probably work anyway for some reason");
         } else {
             DDLogError(@"Failed to create a local message port. This might be because there is another instance of %@ already running. Crashing the app.", kMFHelperName);
             @throw [NSException exceptionWithName:@"NoMessagePortException" reason:@"Couldn't create a local CFMessagePort. Can't function properly without local CFMessagePort" userInfo:nil];
         }
-        
+
         return;
     }
-        
+
     /// Add message port to main runLoop
     CFRunLoopSourceRef runLoopSource = CFMessagePortCreateRunLoopSource(kCFAllocatorDefault, localPort, 0);
     CFRunLoopAddSource(CFRunLoopGetMain(), runLoopSource, kCFRunLoopCommonModes);
@@ -112,7 +112,7 @@
 }
 
 NSString *CFMessagePortSendRequest_ErrorCode_ToString(SInt32 errorCode) {
-    
+
     auto map = @{
         @(kCFMessagePortSuccess)             : @"Success",
         @(kCFMessagePortSendTimeout)         : @"SendTimeout",
@@ -121,33 +121,33 @@ NSString *CFMessagePortSendRequest_ErrorCode_ToString(SInt32 errorCode) {
         @(kCFMessagePortTransportError)      : @"TransportError",
         @(kCFMessagePortBecameInvalidError)  : @"BecameInvalidError",
     };
-    
+
     return map[@(errorCode)] ?: stringf(@"(%d)", errorCode);
 }
 
 static CFDataRef _Nullable didReceiveMessage(CFMessagePortRef port, SInt32 messageID, CFDataRef data, void *info) {
-    
+
     #pragma mark Receive messages
-    
+
     /// Validate
     assert(runningMainApp() || runningHelper());
-    
+
     /// Decode message
     NSDictionary *messageDict = [NSKeyedUnarchiver unarchiveObjectWithData:(__bridge NSData *)data];
     NSString *message = messageDict[kMFMessageKeyMessage];
     NSObject *payload = messageDict[kMFMessageKeyPayload];
-    
+
     /// Log
     DDLogInfo(@"Received Message: %@ with payload: %@", message, payload);
-    
+
     /// Process message
     NSObject *response = nil;
-    
+
     /// Handle commands
     ///     Note: [Jul 2025] We're using NSString to identify the commands. I think this is what `SInt32 messageID` is for, but it's nice to be able to debug-print the strings. To replicate that with `SInt32 messageID`, we might wanna use a `FOR_EACH` macro or `X-MACRO` ... or just keep using strings, it works fine.
-    
+
     #define xxx(message_) else if ([message_ isEqual: message])
-    
+
     if ((0)) {}
     xxx(@"getEnvAndArgs") {
         response = @{
@@ -158,9 +158,9 @@ static CFDataRef _Nullable didReceiveMessage(CFMessagePortRef port, SInt32 messa
     xxx(@"isDarkMode") {
         response = @([[NSAppearance.currentAppearance bestMatchFromAppearancesWithNames: @[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]] isEqual: NSAppearanceNameDarkAqua]);
     }
-    
+
     #if IS_MAIN_APP
-        
+
         xxx(@"addModeFeedback") {
             [MainAppState.shared.buttonTabController handleAddModeFeedbackWithPayload:(NSDictionary *)payload];
         }
@@ -184,22 +184,22 @@ static CFDataRef _Nullable didReceiveMessage(CFMessagePortRef port, SInt32 messa
 
             BOOL isStrange = [MessagePortUtility.shared checkHelperStrangenessReactWithPayload: payload];
             if (!isStrange) { /// Helper matches mainApp instance.
-                
+
                 /// Bring mainApp for foreground
                 /// Notes:
                 /// - In some places like when the accessibilitySheet is dismissed, we have other methods for bringing mainApp to the foreground that might be unnecessary now that we're doing this. Edit: We stopped the accessibility enabling code from activating the app.
                 /// - (September 2024) activateIgnoringOtherApps: is deprecated under macOS 15.0 Sequoia. (But it still seems to work based on my superficial testing before 3.0.3 release.) TODO: Use new cooperative activation APIs instead. (Article: https://developer.apple.com/documentation/appkit/nsapplication/passing_control_from_one_app_to_another_with_cooperative_activation?language=objc)
-                
+
                 [NSApp activateIgnoringOtherApps:YES];
-                
+
                 /// Dismiss accessibilitySheet
                 ///     This is unnecessary under Ventura since `activateIgnoringOtherApps` will trigger `ResizingTabWindowController.windowDidBecomeMain()` which will also call `[AuthorizeAccessibilityView remove]`. But it's better to be safe and explicit about this.
                 [AuthorizeAccessibilityView remove];
-                
+
                 /// Notify rest of the app
                 [EnabledState.shared reactToDidBecomeEnabled];
             }
-            
+
         }
         xxx(@"helperDisabled") {
             [EnabledState.shared reactToDidBecomeDisabled];
@@ -225,7 +225,7 @@ static CFDataRef _Nullable didReceiveMessage(CFMessagePortRef port, SInt32 messa
         }
 
     #elif IS_HELPER
-        
+
         if ((0)) ;
         xxx(@"configFileChanged") {
             [Config loadFileAndUpdateStates];
@@ -253,10 +253,10 @@ static CFDataRef _Nullable didReceiveMessage(CFMessagePortRef port, SInt32 messa
             [KeyCaptureMode disable];
         }
         xxx(@"getActiveDeviceInfo") {
-            
+
             Device *dev = HelperState.shared.activeDevice;
             if (dev != NULL) {
-                
+
                 response = @{
                     @"name": dev.name == nil ? @"" : dev.name,
                     @"manufacturer": dev.manufacturer == nil ? @"" : dev.manufacturer,
@@ -275,13 +275,13 @@ static CFDataRef _Nullable didReceiveMessage(CFMessagePortRef port, SInt32 messa
         else {
             DDLogInfo(@"Unknown message received: %@", message);
         }
-        
+
     #else
         abort();
     #endif
-    
+
     #undef xxx
-    
+
     /// Return response
     if (response != nil) {
          return (__bridge_retained CFDataRef)[NSKeyedArchiver archivedDataWithRootObject:response];
@@ -291,9 +291,9 @@ static CFDataRef _Nullable didReceiveMessage(CFMessagePortRef port, SInt32 messa
 }
 
 + (NSObject *_Nullable)sendMessage:(NSString * _Nonnull)message withPayload:(NSObject<NSCoding> * _Nullable)payload toRemotePort:(NSString *)remotePortName waitForReply:(BOOL)waitForReply {
-    
+
     #pragma mark Send messages
-    
+
     /// Get remote port
     /// Note: We can't just create the port once and cache it, trying to send with that port will yield ``kCFMessagePortIsInvalid``
     CFMessagePortRef remotePort = CFMessagePortCreateRemote(kCFAllocatorDefault, (__bridge CFStringRef)remotePortName);
@@ -303,7 +303,7 @@ static CFDataRef _Nullable didReceiveMessage(CFMessagePortRef port, SInt32 messa
         DDLogInfo(@"Can't send message \'%@\', because there is no CFMessagePort", message);
         return nil;
     }
-    
+
     /// Setup callback when port is invalidated
     ///     Not sure why we're doing this.
     CFMessagePortSetInvalidationCallBack(remotePort, invalidationCallback);
@@ -320,10 +320,10 @@ static CFDataRef _Nullable didReceiveMessage(CFMessagePortRef port, SInt32 messa
             kMFMessageKeyMessage: message,
         };
     }
-    
+
     /// Log
     DDLogInfo(@"Sending message: %@ with payload: %@ from bundle: %@ via message port", message, payload, NSBundle.mainBundle.bundleIdentifier);
-    
+
     /// Send message
     SInt32 messageID = 0x420666; /// Arbitrary
     CFDataRef messageData = (__bridge CFDataRef)[NSKeyedArchiver archivedDataWithRootObject:messageDict];
@@ -337,23 +337,23 @@ static CFDataRef _Nullable didReceiveMessage(CFMessagePortRef port, SInt32 messa
         replyMode = kCFRunLoopDefaultMode;
     }
     SInt32 status = CFMessagePortSendRequest(remotePort, messageID, messageData, sendTimeout, recieveTimeout, replyMode, &responseData);
-    
+
     /// Release port
     CFRelease(remotePort);
-    
+
     /// Handle errors
     ///     Should we retry on timeout? [Oct 2025]
     if (status != 0) {
         DDLogError(@"Non-zero CFMessagePortSendRequest return: %@", CFMessagePortSendRequest_ErrorCode_ToString(status));
         return nil;
     }
-    
+
     /// Decode response
     NSObject *response = nil;
     if (responseData != NULL && waitForReply) {
         response = [NSKeyedUnarchiver unarchiveObjectWithData:(__bridge NSData *)responseData];
     }
-    
+
     /// Return response
     return response;
 }
@@ -363,19 +363,19 @@ static CFDataRef _Nullable didReceiveMessage(CFMessagePortRef port, SInt32 messa
 ///
 
 + (NSObject *_Nullable)sendMessage:(NSString *)message withPayload:(NSObject<NSCoding> *)payload waitForReply:(BOOL)replyExpected {
-        
+
     /// Convenience wrapper
     ///     Automatically sends the message to the helper if the mainApp is the sender, and sends to the mainApp if the helper is the sender.
-    
+
     /// Validate
     assert(runningMainApp() || runningHelper());
-    
+
     /// Get remote port name
     NSString *remotePortName = runningMainApp() ? kMFBundleIDHelper : kMFBundleIDApp;
-    
+
     /// Call core
     NSObject *response = [self sendMessage:message withPayload:payload toRemotePort:remotePortName waitForReply:replyExpected];
-    
+
     /// Return
     return response;
 }

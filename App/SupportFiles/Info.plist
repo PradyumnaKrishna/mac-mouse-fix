@@ -26,7 +26,7 @@
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 			<key>CFBundleURLName</key>
-			<string>com.nuebling.mac-mouse-fix</string>
+			<string>in.onpy.mac-mouse-fix</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>macmousefix</string>
@@ -34,7 +34,7 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>24830</string>
+	<string>24832</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.utilities</string>
 	<key>NSHumanReadableCopyright</key>

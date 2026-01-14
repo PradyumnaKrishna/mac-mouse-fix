@@ -67,13 +67,13 @@ typealias ReleaseCallbackKey = ButtonNumber
 
 /// Main class def
 class ClickCycle: NSObject {
-    
+
     /// Threading
     let buttonQueue: DispatchQueue
-    
+
     /// Config
     var maxClickLevel = 99999
-    
+
     /// State
     fileprivate var state: ClickCycleState? = nil
     func kill() {
@@ -87,24 +87,24 @@ class ClickCycle: NSObject {
         ///     TODO: Implement
         assert(false)
     }
-    
+
     /// Release callbacks
     ///     Clients can register a callback that will *always* be triggered when a button is released, even if the release event doesn't belong to the active click cycle
     fileprivate var releaseCallbacks: [ReleaseCallbackKey: [UnconditionalReleaseCallback]] = [:]
     public func waitingForRelease(device: Device, button: ButtonNumber) -> Bool {
         return releaseCallbacks[button] != nil
     }
-    
+
     /// Init
     required init(buttonQueue: DispatchQueue) {
         self.buttonQueue = buttonQueue
         super.init()
-        
+
         kill()
     }
-    
+
     /// Main interface
-    
+
     func isActiveFor(device: NSNumber, button: NSNumber) -> Bool { /// Think this is unused now that we moved ButtonModifiers away from using Device
         guard let state = state else { return false }
         return state.device.uniqueID() == device && state.button == ButtonNumber(truncating: button)
@@ -113,58 +113,58 @@ class ClickCycle: NSObject {
         guard let state = state else { return false }
         return state.button == ButtonNumber(truncating: button)
     }
-    
+
     func handleClick(device: Device, button: ButtonNumber, downNotUp mouseDown: Bool, maxClickLevel: Int, triggerCallback: @escaping ClickCycleTriggerCallback) {
-        
+
         ///
         /// Call unconditionalReleaseCallbacks
         ///
-        
+
         if !mouseDown {
             if let callbacks = releaseCallbacks[button] {
                 for c in callbacks { c() }
                 releaseCallbacks.removeValue(forKey: button)
-                
+
             }
         }
-        
+
         ///
         /// Update state
         ///
-        
+
         if mouseDown {
-            
+
             /// Gather state
             let cycleIsDead = (state == nil)
             var buttonIsDifferent = false
             if !cycleIsDead { /// Note (Sep 2024): I think only calculating buttonIsDifferent when !cycleIsDead is an optimization, but not sure.
                 buttonIsDifferent = button != state!.button || device != state!.device
             }
-            
+
             /// Restart cycle
             if cycleIsDead || buttonIsDifferent {
                 kill()
                 state = ClickCycleState(device: device, button: button, pressState: .down, clickLevel: 0)
             }
-            
+
             /// Update cycle
             ///     [May 22 2025] intCycle is buggy! This code probably relies on the bug. TODO: Fix.
             state!.clickLevel = Math.intCycle(x: state!.clickLevel + 1, lower: 1, upper: maxClickLevel)
         }
-        
+
         /// Guard: NOT release outside of clickCycle it belongs to
         let lonelyRelease = !mouseDown && (state == nil || state!.device != device || state!.button != button)
-        
+
         if !lonelyRelease {
-            
-            
+
+
             /// Check: release after being held for an extended time
             let releaseFromHold = !mouseDown && state?.pressState == .held
-            
+
             ///
             /// triggerCallback
             ///
-            
+
             if mouseDown {
                 var c: [UnconditionalReleaseCallback] = []
                 triggerCallback(.press, state!.clickLevel, device, button, &c)
@@ -175,19 +175,19 @@ class ClickCycle: NSObject {
                 let trigger: ClickCycleTriggerPhase = releaseFromHold ? .releaseFromHold : .release
                 callTriggerCallback(triggerCallback, trigger, state!.clickLevel, device, button)
             }
-            
+
             /// Kill after releaseFromHold
             if releaseFromHold {
                 kill()
                 return
             }
-        
+
             /// Check active clickCycle
             ///     (triggerCallback could've killed it)
             ///     \note: Sometimes there are raceconditions, and the state only becomes nil after this statement. That's why we simply use `state?` below instead of `state!`
-            
+
             if state == nil { return }
-            
+
             ///
             /// Start/reset timers
             ///
@@ -195,10 +195,10 @@ class ClickCycle: NSObject {
             /// We need to start timers from main. Async dispatching to main caused race conditions.
             /// Edit: Asserting Thread.isMainThread now since we're think it's a good idea for all input (clicks, drags, and scrolls) to be handled synchronously / on the the same thread - ideally the main thread so things are also synced with the NSTimers. (Could also use another mechanism instead of NSTimers?). Handling things on different threads leads to inconsistent triggering of gestures when the computer is slow.
             /// Update (Sep 2024): are we sure we can't simply use NSTimer on another thread than the main thread? I'd like to move all the input handling over to a single thread as much as possible. I think this would be much nicer both to avoid race conditions and crashes and to ensure we're always handling the users inputs in the order they performed them (When using click and drag while the computer is slow, the order that the clicks and mouse-moves are handled is sometimes wrong I think.)
-            
+
             /// ---
             /// Sep 2024 I just saw a crash in the console:
-            /// Thread 5 Crashed::  Dispatch queue: com.nuebling.mac-mouse-fix.buttons
+            /// Thread 5 Crashed::  Dispatch queue: in.onpy.mac-mouse-fix.buttons
             /// ```
             /// Mac Mouse Fix Helper                     0x104873850 Swift runtime failure: Unexpectedly found nil while unwrapping an Optional value + 0 [inlined]
             /// Mac Mouse Fix Helper                     0x104873850 closure #1 in closure #1 in closure #1 in ClickCycle.handleClick(device:button:downNotUp:maxClickLevel:triggerCallback:) + 528
@@ -222,13 +222,13 @@ class ClickCycle: NSObject {
             ///                 - My understanding of the current threading situation: (Sep 2024) we process buttonInputs partially on the mainThread and partially on the 'buttonQueue', other inputProcessing modules such as the modifiedDrag also interact with this module by triggering `ClickCycle.kill()`. modifiedDrag runs on the `GlobalEventTapThread`, but then also dispatches to a special `_drag.queue`, which I don't currently understand the purpose of. So it's really a bit all-over-the-place, and the `NSTimer.invalidate()` method inside `ClickCycle.kill()` is probably not always being called from the same thread, which could cause problems according to the docs.
             ///            2. Remove all force unwrapping `!` from ClickCycle and instead do nil checks and then smoothly recover if state == nil.
             ///
-            /// TODO: @crash fix this. 
+            /// TODO: @crash fix this.
             ///
-            
+
             assert(Thread.isMainThread)
-            
+
             SharedUtilitySwift.doOnMain {
-                
+
                 if mouseDown {
                     /// mouseDown
                     state?.upTimer.invalidate()
@@ -258,12 +258,12 @@ class ClickCycle: NSObject {
                     state?.downTimer.invalidate()
                 }
             }
-            
+
         }
     }
-    
+
     /// Helper
-    
+
     private func callTriggerCallback(_ triggerCallback: ClickCycleTriggerCallback, _ trigger: ClickCycleTriggerPhase, _ clickLevel: ClickLevel, _ device: Device, _ button: ButtonNumber) {
         /// Convenience function - Calls triggerCallback and ignores the last `releaseCallback` argument
         var garbage: [UnconditionalReleaseCallback] = []

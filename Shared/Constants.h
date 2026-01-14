@@ -36,8 +36,8 @@ typedef enum {
 /// Bundles and Bezelservices
 
 /// Added some x's to the bundleID. See notes.md for context.
-#define kMFBundleIDApp      @"com.nuebling.mac-mouse-fix"
-#define kMFBundleIDHelper   @"com.nuebling.mac-mouse-fix.helper"
+#define kMFBundleIDApp      @"in.onpy.mac-mouse-fix"
+#define kMFBundleIDHelper   @"in.onpy.mac-mouse-fix.helper"
 
 //#define kMFRelativeAccomplicePath           @"Contents/Library/LaunchServices/Mac Mouse Fix Accomplice"
 #define kMFRelativeHelperAppPath            @"Contents/Library/LoginItems/Mac Mouse Fix Helper.app"
@@ -56,7 +56,7 @@ typedef enum {
 /// ^ The old value "mouse.fix.helper" was also used with the old prefpane version which could lead to conflicts. See Mail beginning with 'I attached the system log. Happening with this version too'. Edit: We moved back to the old `mouse.fix.helper` label for the app version of Mac Mouse Fix. Reasoning:
 ///      We meant to move the launchd label over to a new one to avoid conlicts when upgrading from the old prefpane, but I think it can actually lead to more complications. Also we'd fragment things, because the first few versions of the app version already shipped with the old "mouse.fix.helper" label.
 
-#define kMFLaunchdHelperIdentifierSM  @"com.nuebling.mac-mouse-fix.helper"
+#define kMFLaunchdHelperIdentifierSM  @"in.onpy.mac-mouse-fix.helper"
 /// ^ Keep this in sync with `sm_launchd.plist`
 /// ^ We finally moved to this new label when moving to the new Service Management API for enabling the Helper as background task for Ventura.
 /// We experienced strange issues when using the old label, so we're giving this new one a try.
@@ -223,7 +223,7 @@ typedef enum {
     kMFSHMoveLeftASpace = 79,
     kMFSHMoveRightASpace = 81,
     kMFSHCycleThroughWindows = 27,
-    
+
     kMFSHSwitchToDesktop1 = 118,
     kMFSHSwitchToDesktop2 = 119,
     kMFSHSwitchToDesktop3 = 120,
@@ -240,22 +240,22 @@ typedef enum {
     kMFSHSwitchToDesktop14 = 131,
     kMFSHSwitchToDesktop15 = 132,
     kMFSHSwitchToDesktop16 = 133,
-    
+
     kMFSHSpotlight = 64,
     kMFSHSiri = 176,
     kMFSHNotificationCenter = 163,
     kMFSHToggleDoNotDisturb = 175,
-    
+
     /// These shk are assigned to some function keys on apple keyboards
-    
+
     kMFFunctionKeySHKMissionControl = 108,
     kMFFunctionKeySHKDictation = 186,
     kMFFunctionKeySHKSpotlight = 187,
     kMFFunctionKeySHKSwitchKeyboard = 188,
     kMFFunctionKeySHKDoNotDisturb = 189,
-    
+
     kMFFunctionKeySHKLaunchpad = 173,
-    
+
 } MFSymbolicHotkey;
 
 /// SystemEvents
@@ -266,7 +266,7 @@ typedef enum {
 typedef enum {
 
     /// These types are found in the `data1` field, shifted left by 16 bits
-    
+
     kMFSystemEventTypeBrightnessDown = 3,
     kMFSystemEventTypeBrightnessUp = 2,
     kMFSystemEventTypeMediaBack = 16 + 4,
@@ -275,20 +275,20 @@ typedef enum {
     kMFSystemEventTypeVolumeMute = 7,
     kMFSystemEventTypeVolumeDown = 1,
     kMFSystemEventTypeVolumeUp = 0,
-    
+
     kMFSystemEventTypeKeyboardBacklightDown = 22,
     kMFSystemEventTypeKeyboardBacklightUp = 21,
-    
+
     kMFSystemEventTypePower = 6,
     kMFSystemEventTypeCapsLock = 4, /// Should probably disable remapping to this. Doesn't work
-    
+
 } MFSystemDefinedEventType;
 
 enum {
     /// More definitions for the `data1` field
 
     kMFSystemDefinedEventPressedMask = 1 << 8, ///  0 is keyDown, 1 is keyUp
-    kMFSystemDefinedEventBase = (1 << 9) | (1 << 11), /// These two bits are always set    
+    kMFSystemDefinedEventBase = (1 << 9) | (1 << 11), /// These two bits are always set
 };
 
 // Mosue Buttons
@@ -309,9 +309,9 @@ typedef enum {
 /// Most CGEventFields we discovered aren't documented here but are indirectly documented in the touchSimulator classes
 
 typedef CF_ENUM(uint32_t, MFCGEventField) {
-    
+
     kMFCGEventFieldSenderID = 87,
-    
+
 };
 
 @end
