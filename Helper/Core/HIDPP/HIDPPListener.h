@@ -11,7 +11,7 @@
 #import <IOKit/hid/IOHIDDevice.h>
 
 /// Listens for Logitech HID++ notifications and synthesizes mouse button events.
-/// Best-effort: start may fail if the device lacks HID++ 2.0 support.
+/// Best-effort: Logitech devices are retried after reconnect/wake because firmware can be late to expose HID++.
 @interface HIDPPListener : NSObject
 
 - (instancetype)initWithDevice:(IOHIDDeviceRef)device;

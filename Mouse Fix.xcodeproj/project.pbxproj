@@ -425,7 +425,6 @@
 		4FFBC5A8266977CA001D389B /* DoubleExponentialSmoother.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FFBC5A7266977CA001D389B /* DoubleExponentialSmoother.swift */; };
 		4FFE2895291B35AA0058ABE0 /* (null) in Sources */ = {isa = PBXBuildFile; };
 		5AAA00052500000000000005 /* HIDPPListener.mm in Sources */ = {isa = PBXBuildFile; fileRef = 5AAA00032500000000000003 /* HIDPPListener.mm */; };
-		5AAA00062500000000000006 /* hid.c in Sources */ = {isa = PBXBuildFile; fileRef = 5AAA00042500000000000004 /* hid.c */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -2582,7 +2581,6 @@
 		4FFBC5A7266977CA001D389B /* DoubleExponentialSmoother.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubleExponentialSmoother.swift; sourceTree = "<group>"; };
 		5AAA00022500000000000002 /* HIDPPListener.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = HIDPPListener.h; sourceTree = "<group>"; };
 		5AAA00032500000000000003 /* HIDPPListener.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = HIDPPListener.mm; sourceTree = "<group>"; };
-		5AAA00042500000000000004 /* hid.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = hid.c; path = External/hidapi/mac/hid.c; sourceTree = "<group>"; };
 		D067879D2F16677600A6536C /* Mac Mouse FixDebug.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "Mac Mouse FixDebug.entitlements"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -7592,7 +7590,6 @@
 				4F78CEF22904414B0030086C /* UI */,
 				4FF6663F25F2C93A00689B77 /* Utility */,
 				4FF6664D25F2C93A00689B77 /* SupportFiles */,
-				5AAA00042500000000000004 /* hid.c */,
 			);
 			path = Helper;
 			sourceTree = "<group>";
@@ -8475,7 +8472,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				5AAA00052500000000000005 /* HIDPPListener.mm in Sources */,
-				5AAA00062500000000000006 /* hid.c in Sources */,
 				4FB8B29F2CCEBB1700A5A580 /* GetTrialState.swift in Sources */,
 				4F9C9B58268A29B70083DED0 /* RollingAverage.swift in Sources */,
 				4FFA4E4428B7D28E0062A1FE /* ConstraintUtility.swift in Sources */,
@@ -9152,7 +9148,6 @@
 				);
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(SRCROOT)/Helper/External/hidapi/hidapi",
 				);
 				INFOPLIST_FILE = Helper/SupportFiles/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
@@ -9201,7 +9196,6 @@
 				);
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(SRCROOT)/Helper/External/hidapi/hidapi",
 				);
 				INFOPLIST_FILE = Helper/SupportFiles/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
